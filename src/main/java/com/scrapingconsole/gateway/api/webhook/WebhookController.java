@@ -14,15 +14,21 @@ import org.springframework.data.mongodb.core.MongoOperations;
 import org.springframework.data.mongodb.core.MongoTemplate;
 import org.springframework.data.mongodb.core.query.BasicQuery;
 import org.springframework.data.mongodb.core.query.Query;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+import org.springframework.http.client.reactive.ReactorClientHttpConnector;
 import org.springframework.messaging.handler.annotation.MessageMapping;
 import org.springframework.messaging.handler.annotation.SendTo;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.stereotype.Controller;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.reactive.function.BodyInserter;
+import org.springframework.web.reactive.function.BodyInserters;
 import org.springframework.web.reactive.function.client.WebClient;
 
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -123,23 +129,20 @@ public class WebhookController {
             List<String> dataArray = (List<String>) document.get("data");
             firstElement = dataArray.get(0);
 
-//            LOGGER.debug("EXISTS: {}", firstElement);
-
             ScrapeHtmlResponse response = new ScrapeHtmlResponse();
             response.setResponse(firstElement);
             return response;
 
         } else {
-            // needs WebClient to send the request to the scraping service
-
             String callUrl = "/html";
 
             ResponseEntity<ScrapeHtmlResponse> responseEntity = scraperClient.post()
                     .uri(uriBuilder -> uriBuilder.path(callUrl).build())
-//                    .headers()
+                    .body(BodyInserters.fromValue(request))
+                    .header(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON_VALUE)
                     .retrieve()
                     .toEntity(ScrapeHtmlResponse.class)
-                    .doOnError(e -> LOGGER.error("Error retrieving response from scraper service"))
+                    .doOnError(e -> LOGGER.error("Error retrieving response from scraper service: {}", e.getMessage()))
                     .onErrorReturn(ResponseEntity.ok(new ScrapeHtmlResponse()))
                     .block();
 

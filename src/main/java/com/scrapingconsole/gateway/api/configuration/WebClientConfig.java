@@ -20,7 +20,7 @@ public class WebClientConfig {
     @Bean
     public WebClient scraperClient() {
         return WebClient.builder()
-                .exchangeStrategies(this.createExchangeStrategies())
+//                .exchangeStrategies(this.createExchangeStrategies())
                 .baseUrl(scraperUrl)
                 .clientConnector(this.createClientHttpConnector())
                 .defaultHeader(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON_VALUE)
@@ -34,10 +34,10 @@ public class WebClientConfig {
      * @return The created connector.
      */
     private ClientHttpConnector createClientHttpConnector() {
-        HttpClient client = HttpClient.create()
-                .doOnRequest(((httpClientRequest, connection) -> {
-                    connection.addHandlerLast(new CustomLoggingHandler());
-                }));
+        HttpClient client = HttpClient.create();
+//                .doOnRequest(((httpClientRequest, connection) -> {
+//                    connection.addHandlerLast(new CustomLoggingHandler());
+//                }));
 
         ClientHttpConnector connector = new ReactorClientHttpConnector(client);
 
