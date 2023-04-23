@@ -1,7 +1,10 @@
 package com.scrapingconsole.gateway.api.webhook;
 
 import com.google.gson.Gson;
+import com.mongodb.BasicDBList;
 import com.mongodb.BasicDBObject;
+import com.mongodb.DBObject;
+import com.scrapingconsole.gateway.api.webhook.dto.request.ScrapeDataRequest;
 import com.scrapingconsole.gateway.api.webhook.dto.request.ScrapeHtmlRequest;
 import com.scrapingconsole.gateway.api.webhook.dto.request.ScrapedData;
 import com.scrapingconsole.gateway.api.webhook.dto.request.ScrapedHtml;
@@ -18,17 +21,14 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
-import org.springframework.http.client.reactive.ReactorClientHttpConnector;
 import org.springframework.messaging.handler.annotation.MessageMapping;
 import org.springframework.messaging.handler.annotation.SendTo;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.stereotype.Controller;
 import org.springframework.web.bind.annotation.*;
-import org.springframework.web.reactive.function.BodyInserter;
 import org.springframework.web.reactive.function.BodyInserters;
 import org.springframework.web.reactive.function.client.WebClient;
 
-import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -67,21 +67,67 @@ public class WebhookController {
         Gson gson = new Gson();
 
         String json = gson.toJson(request);
+        String url = (String) request.getData()[1];
 
-//        Document doc = Document.parse(json);
-//        mongoTemplate.insert(doc, "scrapes");
+        Query query = new BasicQuery(String.valueOf(new BasicDBObject("data", new BasicDBObject("$eq", url))));
+        long count = mongoTemplate.count(query, "scrapes");
+        if (count > 0) {
+            List<BasicDBObject> documents = mongoTemplate.getCollection("scrapes").find(query.getQueryObject(), BasicDBObject.class).into(new ArrayList<>());
+            BasicDBObject document = documents.get(0);
+            List<String> dataArray = (List<String>) document.get("data");
+            String firstElement = dataArray.get(0);
 
-//        MongoCollection<Document> robosCollection = mongoTemplate.getCollection("collectionName"); //get the name of the collection that you want
-
-//        MongoCursor<Document> cursor =  robosCollection.find().cursor();//Mongo Cursor interface implementing the iterator protocol
-
-//        cursor.forEachRemaining(System.out::println); //print all documents in Collection using method reference
-//        mongoTemplate.findAll(Document.class, "scrapes");
-//        LOGGER.debug("Retrieved data form db: {}", mongoTemplate.findAll(Document.class, "scrapes"));
+            LOGGER.debug("EXISTS: {}", firstElement);
+        } else {
+            LOGGER.debug("DOESNT exist");
+            Document doc = Document.parse(json);
+            mongoTemplate.insert(doc, "scrapes");
+        }
 
         template.convertAndSend("/topic/scrapeddata", json);
 
         return new ResponseEntity<>(request, HttpStatus.OK);
+    }
+
+    @PostMapping("scrapedata")
+    @ResponseBody
+    public ScrapeHtmlResponse sendPostScrapeRequest(ScrapeDataRequest request) {
+
+        String url = request.getUrl();
+        String firstElement = null;
+
+        // this needs to go into getHtml() mapping and not in this webhook method
+        Query query = new BasicQuery(String.valueOf(new BasicDBObject("data.0", new BasicDBObject("$eq", url))));
+        long count = mongoTemplate.count(query, "scrapes");
+        if (count > 0) {
+            query.fields().slice("data", 0, 1);
+            DBObject result = mongoTemplate.findOne(query, DBObject.class, "yourCollectionName");
+            DBObject dataObject = (DBObject) result.get("data");
+            DBObject firstObject = (DBObject) ((BasicDBList) dataObject).get(0);
+
+            Gson gson = new Gson();
+            String json = gson.toJson(firstObject);
+
+            ScrapeHtmlResponse response = new ScrapeHtmlResponse();
+            response.setResponse(json);
+
+            return response;
+        } else {
+            String callUrl = "/crawl";
+
+            ResponseEntity<ScrapeHtmlResponse> responseEntity = scraperClient.post()
+                    .uri(uriBuilder -> uriBuilder.path(callUrl).build())
+                    .body(BodyInserters.fromValue(request))
+                    .header(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON_VALUE)
+                    .retrieve()
+                    .toEntity(ScrapeHtmlResponse.class)
+                    .doOnError(e -> LOGGER.error("Error retrieving response from scraper service: {}", e.getMessage()))
+                    .onErrorReturn(ResponseEntity.ok(new ScrapeHtmlResponse()))
+                    .block();
+
+            return responseEntity != null && responseEntity.hasBody() ? responseEntity.getBody() : null;
+        }
+
     }
 
     @RequestMapping(value = "/scrapedhtml", method = RequestMethod.POST)
@@ -89,7 +135,7 @@ public class WebhookController {
 
         Gson gson = new Gson();
 
-        String json = gson.toJson(request); // the url
+        String json = gson.toJson(request);
 
         String url = request.getData()[1];
         // this needs to go into getHtml() mapping and not in this webhook method
